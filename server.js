@@ -1,53 +1,43 @@
-import express from "express";
-import axios from "axios";
-import cors from "cors";
-import dotenv from "dotenv";
-
-dotenv.config();
+const express = require('express');
+const session = require('express-session');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const FacebookStrategy = require('passport-facebook').Strategy;
+const oauthConfig = require('./config/oauth');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
 
-const PORT = 3000;
+// Sessão
+app.use(session({ secret: 'segredoKreator', resave: false, saveUninitialized: true }));
+app.use(passport.initialize());
+app.use(passport.session());
 
-// 🔐 GOOGLE LOGIN
-app.get("/auth/google", (req, res) => {
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.CLIENT_ID}&redirect_uri=${process.env.REDIRECT_URI}&response_type=code&scope=openid email profile`;
+// Passport Google
+passport.use(new GoogleStrategy(oauthConfig.google, (accessToken, refreshToken, profile, done) => {
+    return done(null, profile);
+}));
 
-  res.redirect(url);
-});
+// Passport Facebook
+passport.use(new FacebookStrategy(oauthConfig.facebook, (accessToken, refreshToken, profile, done) => {
+    return done(null, profile);
+}));
 
-// 🔁 CALLBACK
-app.get("/auth/google/callback", async (req, res) => {
-  const code = req.query.code;
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((user, done) => done(null, user));
 
-  try {
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", {
-      client_id: process.env.CLIENT_ID,
-      client_secret: process.env.CLIENT_SECRET,
-      code,
-      redirect_uri: process.env.REDIRECT_URI,
-      grant_type: "authorization_code"
-    });
+// Rotas Google
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/' }),
+    (req, res) => res.send('Login Google bem-sucedido!'));
 
-    const access_token = tokenRes.data.access_token;
+// Rotas Facebook
+app.get('/auth/facebook', passport.authenticate('facebook', { scope: ['email'] }));
+app.get('/auth/facebook/callback', passport.authenticate('facebook', { failureRedirect: '/' }),
+    (req, res) => res.send('Login Facebook bem-sucedido!'));
 
-    const userRes = await axios.get(
-      "https://www.googleapis.com/oauth2/v2/userinfo",
-      {
-        headers: { Authorization: `Bearer ${access_token}` }
-      }
-    );
+// Teste
+app.get('/', (req, res) => res.send('Backend Kreator rodando!'));
 
-    const user = userRes.data;
-
-    // 👉 Aqui você pode salvar no banco depois
-    res.redirect(`https://kreator-ao.vercel.app/dashboard?user=${encodeURIComponent(JSON.stringify(user))}`);
-
-  } catch (err) {
-    res.send("Erro no login");
-  }
-});
-
-app.listen(PORT, () => console.log("Servidor rodando"));
+// Porta
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
